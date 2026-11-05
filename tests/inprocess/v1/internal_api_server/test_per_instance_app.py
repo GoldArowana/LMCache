@@ -19,10 +19,10 @@ from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 
 # First Party
+from lmcache.inprocess.v1.cache_engine import LMCacheEngine
+from lmcache.inprocess.v1.config import LMCacheEngineConfig
 from lmcache.inprocess.v1.internal_api_server.api_server import InternalAPIServer
-from lmcache.v1.cache_engine import LMCacheEngine
-from lmcache.v1.config import LMCacheEngineConfig
-from lmcache.v1.metadata import LMCacheMetadata
+from lmcache.inprocess.v1.metadata import LMCacheMetadata
 
 
 def _make_config(port_start: int) -> LMCacheEngineConfig:

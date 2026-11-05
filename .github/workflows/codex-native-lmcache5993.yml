@@ -1,0 +1,142 @@
+name: LMCache5993 exact source CPU validation
+on:
+  push:
+    branches: ['codex-ci/lmcache5993-native5a8e6819']
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOURCE_REPOSITORY: GoldArowana/LMCache
+      SOURCE_COMMIT: da3a921716e4fbeefd2376075ba5402772116a22
+      SOURCE_TREE: 42dbcd6d2635d53451b1dadb438c82aca3f4b556
+      SOURCE_BASE: b9a1447bf2db83b8eb81cb82f81f2144edaa2625
+      SOURCE_PREVIOUS: 1df784fb6f0829fd5f6a74481b0758dc876cd38b
+      NO_NATIVE_EXT: '1'
+      SETUPTOOLS_SCM_PRETEND_VERSION_FOR_LMCACHE: 0.0.0+native5993
+      LMCACHE_TRACK_USAGE: 'false'
+      PIP_NO_CACHE_DIR: '1'
+      PYTHONUNBUFFERED: '1'
+    defaults:
+      run:
+        working-directory: source
+        shell: bash
+    steps:
+      - name: Checkout exact source rather than CI event
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          repository: GoldArowana/LMCache
+          ref: da3a921716e4fbeefd2376075ba5402772116a22
+          fetch-depth: 2
+          persist-credentials: false
+          path: source
+      - name: Assert source repository commit tree parents and original CI change
+        run: |
+          set -euo pipefail
+          test "$SOURCE_REPOSITORY" = 'GoldArowana/LMCache'
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test "$(git rev-parse HEAD^{tree})" = "$SOURCE_TREE"
+          test "$(git rev-parse HEAD^1)" = "$SOURCE_PREVIOUS"
+          test "$(git rev-parse HEAD^2)" = "$SOURCE_BASE"
+          test "$(git remote get-url origin)" = 'https://github.com/GoldArowana/LMCache'
+          git diff HEAD --exit-code
+          printf 'SOURCE_REPOSITORY=%s\nSOURCE_COMMIT=%s\nSOURCE_TREE=%s\nCI_EVENT_COMMIT=%s\n' "$SOURCE_REPOSITORY" "$SOURCE_COMMIT" "$SOURCE_TREE" "$GITHUB_SHA"
+          grep -F -- '--ignore=tests/inprocess/v1/compute/test_pos_kernels.py' .buildkite/k3_tests/unit/run.sh
+      - name: Setup Python 3.13 for repository lint hooks
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548
+        with:
+          python-version: '3.13'
+      - name: Setup Python 3.12 for source CPU CLI validation
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548
+        with:
+          python-version: '3.12'
+      - name: Bootstrap documented source-only environment and official ignored bindings
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'setuptools>=77.0.3,<81.0.0' setuptools_scm packaging wheel ninja
+          python -m pip install -r requirements/test.txt -r requirements/common.txt -r requirements/cli.txt pre-commit
+          NO_NATIVE_EXT=1 python -m pip install -e . --no-build-isolation --no-deps
+          python lmcache/v1/multiprocess/transport/grpc_impl/_proto_gen/_generate.py
+          python -c 'import sys,torch,lmcache; print(sys.version); print(torch.__version__); print(lmcache.__file__); assert torch.version.cuda is None'
+          git diff HEAD --exit-code
+      - name: Exact merged quota regression suite
+        id: quota
+        run: |
+          set -euo pipefail
+          python -m pytest -q tests/cli/commands/test_quota.py --junitxml="$RUNNER_TEMP/quota.xml"
+          git diff HEAD --exit-code
+      - name: Complete repository CLI suite
+        id: cli
+        run: |
+          set -euo pipefail
+          python -m pytest -q tests/cli --junitxml="$RUNNER_TEMP/cli.xml"
+          git diff HEAD --exit-code
+      - name: Non-Rust repository pre-commit checks
+        id: lint
+        run: |
+          set -euo pipefail
+          SKIP=rust-fmt,rust-clippy pre-commit run --all-files
+          git diff HEAD --exit-code
+      - name: Strict source and current-dev Sphinx diagnostic comparison
+        id: docs
+        if: ${{ !cancelled() && steps.quota.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          git diff HEAD --exit-code
+          python -m pip install -r requirements/docs.txt
+          git worktree add --detach "$RUNNER_TEMP/lmcache-docs-baseline" "$SOURCE_BASE"
+          set +e
+          (cd "$RUNNER_TEMP/lmcache-docs-baseline/docs" && make clean && PYTHONPATH="$RUNNER_TEMP/lmcache-docs-baseline" make html SPHINXOPTS="-W --keep-going") > "$RUNNER_TEMP/docs-base.log" 2>&1
+          base_rc=$?
+          (cd docs && make clean && make html SPHINXOPTS="-W --keep-going") > "$RUNNER_TEMP/docs-head.log" 2>&1
+          head_rc=$?
+          set -e
+          printf 'DOCS_BASE_EXIT=%s\nDOCS_HEAD_EXIT=%s\n' "$base_rc" "$head_rc"
+          cat "$RUNNER_TEMP/docs-base.log"
+          cat "$RUNNER_TEMP/docs-head.log"
+          DOCS_BASE_EXIT="$base_rc" DOCS_HEAD_EXIT="$head_rc" python - <<'PY'
+          import collections, json, os, pathlib, re
+          temp=pathlib.Path(os.environ['RUNNER_TEMP'])
+          def diagnostics(path):
+              rows=[]
+              for line in path.read_text(errors='replace').splitlines():
+                  if re.search(r'\b(WARNING|ERROR|CRITICAL)\b',line):
+                      line=line.replace(os.environ['GITHUB_WORKSPACE']+'/source','SOURCE').replace(str(temp/'lmcache-docs-baseline'),'SOURCE')
+                      line=re.sub(r':\d+(?::\d+)?:',':LINE:',line)
+                      rows.append(line)
+              return collections.Counter(rows)
+          before=diagnostics(temp/'docs-base.log');after=diagnostics(temp/'docs-head.log')
+          new=after-before
+          report={'base_exit':int(os.environ['DOCS_BASE_EXIT']),'head_exit':int(os.environ['DOCS_HEAD_EXIT']),'base_diagnostics':dict(before),'head_diagnostics':dict(after),'new_diagnostics':dict(new),'full_docs_passed':int(os.environ['DOCS_HEAD_EXIT'])==0 and not after}
+          (temp/'docs-comparison.json').write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report,indent=2))
+          if new:raise SystemExit(1)
+          if report['head_exit'] and not report['base_exit']:raise SystemExit(1)
+          PY
+          git -C "$RUNNER_TEMP/lmcache-docs-baseline" diff HEAD --exit-code
+          git diff HEAD --exit-code
+      - name: Always verify exact source stayed byte-clean
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test "$(git rev-parse HEAD^{tree})" = "$SOURCE_TREE"
+          git diff HEAD --exit-code
+          git diff --cached --exit-code
+      - name: Preserve bounded validation artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: lmcache5993-cpu-validation
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/quota.xml
+            ${{ runner.temp }}/cli.xml
+            ${{ runner.temp }}/docs-base.log
+            ${{ runner.temp }}/docs-head.log
+            ${{ runner.temp }}/docs-comparison.json

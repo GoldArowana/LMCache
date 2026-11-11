@@ -1,0 +1,124 @@
+name: LMCache Sphinx exact source CPU validation
+
+on:
+  push:
+    branches: [codex-ci/lmcache-sphinx-009e60b5]
+
+permissions:
+  contents: read
+
+jobs:
+  cpu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 38
+    env:
+      LC_ALL: en_US.UTF-8
+      PYTHONHASHSEED: "0"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_NO_CACHE_DIR: "1"
+      LMCACHE_TRACK_USAGE: "false"
+      HF_HUB_OFFLINE: "1"
+      HF_HUB_DISABLE_IMPLICIT_TOKEN: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_DATASETS_OFFLINE: "1"
+      SOURCE_REPOSITORY: GoldArowana/LMCache
+      SOURCE_COMMIT: 647451760fe3387d48af885c0e34220648ccd895
+      SOURCE_TREE: 3404272ec15788ab06f8727e00c25c68ec432da3
+      CI_WORKFLOW_PATH: .github/workflows/codex-native-lmcache-sphinx-009e60b5.yml
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76
+        with:
+          egress-policy: audit
+
+      - name: Checkout exact signed source
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          repository: GoldArowana/LMCache
+          ref: ${{ env.SOURCE_COMMIT }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert exact source and isolated workflow event
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "$SOURCE_REPOSITORY"
+          test "$GITHUB_REF" = "refs/heads/codex-ci/lmcache-sphinx-009e60b5"
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_SHA" != "$SOURCE_COMMIT"
+          test "$(git remote get-url origin)" = "https://github.com/GoldArowana/LMCache"
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
+          test "$(git rev-list --parents -n 1 "$GITHUB_SHA")" = "$GITHUB_SHA $SOURCE_COMMIT"
+          test "$(git diff --name-status "$SOURCE_COMMIT" "$GITHUB_SHA")" = "$(printf 'A\t%s' "$CI_WORKFLOW_PATH")"
+          git diff HEAD --exit-code
+          git diff --cached --exit-code
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          printf 'SOURCE_REPOSITORY=%s\nSOURCE_COMMIT=%s\nSOURCE_TREE=%s\nCI_EVENT_COMMIT=%s\n' "$SOURCE_REPOSITORY" "$SOURCE_COMMIT" "$SOURCE_TREE" "$GITHUB_SHA" | tee "$RUNNER_TEMP/source-identity.txt"
+
+      - name: Free disk space using the signed source's Linux CI action
+        uses: ./.github/actions/free-disk-space
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548
+        with:
+          python-version: "3.12"
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+
+      - name: Install dependencies like upstream CPU unit tests
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install vllm
+          python -m pip install -r requirements/test.txt
+          python -m pip install -r requirements/common.txt
+          NO_GPU_EXT=1 python -m pip install -e . --no-build-isolation
+          git diff HEAD --exit-code
+          git diff --cached --exit-code
+          python --version > "$RUNNER_TEMP/python-version.txt"
+          python -m pip list --format=json > "$RUNNER_TEMP/python-packages.json"
+          df -h .
+
+      - name: Run upstream CPU unit-test marker
+        env:
+          RUN_DEVDAX_L1_INTEGRATION: "1"
+          RUN_DAX_L2_INTEGRATION: "1"
+          LMCACHE_TEST_DEVDAX_L1_PATHS: ""
+        run: |
+          set -euo pipefail
+          status=0
+          pytest -m "not (cuda or musa or xpu or npu or neuron or rbln)" --junitxml="$RUNNER_TEMP/cpu-pytest.xml" || status=$?
+          printf '%s\n' "$status" > "$RUNNER_TEMP/cpu-pytest.exit"
+          exit "$status"
+
+      - name: Always verify the signed source stayed byte-clean
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
+          git diff HEAD --exit-code
+          git diff --cached --exit-code
+          git status --porcelain=v1 --untracked-files=all | tee "$RUNNER_TEMP/source-status-final.txt"
+          test ! -s "$RUNNER_TEMP/source-status-final.txt"
+          printf 'git diff and working-tree cleanliness verified\n' > "$RUNNER_TEMP/source-clean-final.txt"
+
+      - name: Keep bounded source identity and test evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: lmcache-sphinx-cpu-64745176
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/source-identity.txt
+            ${{ runner.temp }}/python-version.txt
+            ${{ runner.temp }}/python-packages.json
+            ${{ runner.temp }}/cpu-pytest.xml
+            ${{ runner.temp }}/cpu-pytest.exit
+            ${{ runner.temp }}/source-status-final.txt
+            ${{ runner.temp }}/source-clean-final.txt

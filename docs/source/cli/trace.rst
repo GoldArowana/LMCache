@@ -119,8 +119,10 @@ retrieve misses.
    host, and StorageManager reads/writes are async. Treat retrieve-miss
    counts as a signal about the replay environment, not a defect in the trace.
 
-Options
-~~~~~~~
+Replay options
+~~~~~~~~~~~~~~
+
+.. _options:
 
 .. list-table::
    :header-rows: 1

@@ -37,8 +37,10 @@ eliminates:
   (e.g., ``l1.sizeGB <= 0``, invalid port range) at ``kubectl apply`` time,
   before any pods are created.
 
-Prerequisites
--------------
+.. _prerequisites:
+
+Operator installation prerequisites
+-----------------------------------
 
 - Kubernetes 1.20+
 - ``kubectl`` configured to access your cluster
@@ -292,8 +294,10 @@ Prerequisites
   ``<engine>-connection`` ConfigMap directly, so the ``LMCacheEngine`` must
   already exist in the vLLM pod's namespace.
 
-Opting a vLLM Pod In
-~~~~~~~~~~~~~~~~~~~~
+.. _opting-a-vllm-pod-in:
+
+Opting a vLLM pod into connection injection
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Add the opt-in label and the engine-binding annotation to the pod template, and
 launch vLLM via the image **ENTRYPOINT** (args only) -- a
@@ -344,8 +348,10 @@ not reach ``vllm serve``):
 A ready-to-edit manifest lives at
 ``operator/config/samples/vllm_lmcache_deployment.yaml``.
 
-Verifying Injection
-~~~~~~~~~~~~~~~~~~~
+.. _verifying-injection:
+
+Verifying connection injection
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The webhook mutates **Pods**, not the Deployment, so inspect a pod (not the
 Deployment spec):

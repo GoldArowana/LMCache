@@ -63,8 +63,10 @@ There are three ways to configure the benchmark:
    ``--config``.
 
 
-Quick Start
-~~~~~~~~~~~
+.. _quick-start:
+
+Engine benchmark quick start
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Minimal (with all required arguments):**
 
@@ -901,8 +903,10 @@ tweak individual settings:
        --config my_bench.json --kv-cache-volume 200
 
 
-Output
-~~~~~~
+.. _output:
+
+Engine benchmark output
+~~~~~~~~~~~~~~~~~~~~~~~
 
 Terminal (real-time progress)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1012,8 +1016,10 @@ diff can pair by ``sample_id`` and skip what either run failed to score,
 rather than averaging a parsing failure in as a wrong answer.
 
 
-Exit Codes
-~~~~~~~~~~
+.. _exit-codes:
+
+Engine benchmark exit codes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. list-table::
    :header-rows: 1
@@ -1048,8 +1054,10 @@ It also requires the full ``lmcache`` install (not the lightweight
 ``lmcache-cli`` package).
 
 
-What it does
-~~~~~~~~~~~~
+.. _what-it-does:
+
+What the server benchmark does
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For each sequence in ``[--start, --end)``, the tool runs two passes. Each
 pass reserves request-exclusive KV blocks and releases them when it finishes.
@@ -1079,8 +1087,10 @@ completion of all workers. ``--transfer-timeout`` bounds each call's wait. After
 timeout or transfer exception, close the client before reuse. Shutdown waits for
 running transfers and may block if a native call hangs.
 
-Quick start
-~~~~~~~~~~~
+.. _id2:
+
+Server benchmark quick start
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Start the MP server in one terminal:
 
@@ -1103,8 +1113,10 @@ By default the tool runs forever (``--end`` unset); stop it with
 ``Ctrl-C`` at any time. Pass ``--end N`` for a bounded run.
 
 
-Options
-~~~~~~~
+Server benchmark options
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. _options:
 
 .. list-table::
    :header-rows: 1
@@ -1497,8 +1509,10 @@ Any ``CHECKSUM MISMATCH``, ``ERROR``, or Python traceback in the log
 indicates a real problem worth investigating.
 
 
-Exit codes
-~~~~~~~~~~
+.. _id4:
+
+Server benchmark exit codes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. list-table::
    :header-rows: 1
@@ -1535,8 +1549,10 @@ only needs the adapter's own backing storage to be reachable (for the
 ``fs`` adapter, that simply means a writable directory).
 
 
-What it does
-~~~~~~~~~~~~
+.. _id5:
+
+What the L2 benchmark does
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For each measured operation the tool drives the adapter directly via
 its public submit/wait API:
@@ -1598,8 +1614,10 @@ support a clean store -> load round-trip.
    pages.
 
 
-Quick start
-~~~~~~~~~~~
+.. _id6:
+
+L2 benchmark quick start
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 Benchmark the local filesystem adapter with default parameters:
 
@@ -1667,8 +1685,10 @@ If you prefer to keep the JSON spec out of the command line, set the
    lmcache bench l2 --num-keys 32 --in-flight 2
 
 
-Options
-~~~~~~~
+.. _id7:
+
+L2 benchmark options
+~~~~~~~~~~~~~~~~~~~~
 
 .. list-table::
    :header-rows: 1

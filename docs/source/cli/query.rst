@@ -46,8 +46,10 @@ estimate.
    Throughput (tokens/s):                   1100.64
    ================================================
 
-Options
-~~~~~~~
+Engine query options
+~~~~~~~~~~~~~~~~~~~~
+
+.. _options:
 
 .. list-table::
    :header-rows: 1

@@ -1,0 +1,230 @@
+name: LMCache 5993 installed CLI validation 5a291c11
+
+on:
+  push:
+    branches: [codex-ci/lmcache5993-native5a291c11-cli]
+
+permissions:
+  contents: read
+
+jobs:
+  quota:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 17
+    env:
+      BASE_COMMIT: 1d0ea6bf7f9722052173273202b7eff568a60f37
+      BASE_TREE: 0df0461879fe432526ad7d01698162ba964eb5d4
+      SOURCE_COMMIT: "3191a4d440f157e654be01100aacd4f46a90694f"
+      SOURCE_TREE: "7542df23724438f0e88082606135fabe9c5aefad"
+      LMCACHE_DISABLE_BANNER: "1"
+      LMCACHE_TRACK_USAGE: "false"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_NO_CACHE_DIR: "1"
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76
+        with:
+          egress-policy: audit
+      - name: Checkout the validation event
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          repository: GoldArowana/LMCache
+          ref: ${{ github.sha }}
+          path: event
+          fetch-depth: 3
+          persist-credentials: false
+      - name: Checkout upstream base
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          repository: LMCache/LMCache
+          ref: ${{ env.BASE_COMMIT }}
+          path: base
+          persist-credentials: false
+      - name: Checkout validation-only quota source
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          repository: GoldArowana/LMCache
+          ref: ${{ env.SOURCE_COMMIT }}
+          path: candidate
+          persist-credentials: false
+      - name: Verify source and event identities
+        id: source
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = GoldArowana/LMCache
+          test "$GITHUB_REF" = refs/heads/codex-ci/lmcache5993-native5a291c11-cli
+          test "$GITHUB_EVENT_NAME" = push
+          test "$(git -C event rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C event show -s --format=%P HEAD)" = "$SOURCE_COMMIT"
+          test "$(git -C event show -s --format=%P "$SOURCE_COMMIT")" = "$BASE_COMMIT"
+          test "$(git -C event diff --name-only "$SOURCE_COMMIT" HEAD)" = .github/workflows/codex-native-lmcache5993-cli-5a291c11.yml
+          test "$(git -C base remote get-url origin)" = https://github.com/LMCache/LMCache
+          test "$(git -C candidate remote get-url origin)" = https://github.com/GoldArowana/LMCache
+          test "$(git -C base rev-parse HEAD)" = "$BASE_COMMIT"
+          test "$(git -C base rev-parse 'HEAD^{tree}')" = "$BASE_TREE"
+          test "$(git -C candidate rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test "$(git -C candidate rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
+          printf 'BASE=%s %s\nSOURCE=%s %s\nEVENT=%s %s\n' "$BASE_COMMIT" "$BASE_TREE" "$SOURCE_COMMIT" "$SOURCE_TREE" "$GITHUB_SHA" "$(git -C event rev-parse 'HEAD^{tree}')"
+          for path in base candidate; do
+            git -C "$path" diff HEAD --exit-code
+            test -z "$(git -C "$path" status --porcelain --untracked-files=all)"
+          done
+          cmp base/pyproject_cli.toml candidate/pyproject_cli.toml
+          cmp base/requirements/cli.txt candidate/requirements/cli.txt
+      - name: Set up the upstream CLI build Python
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548
+        with:
+          python-version: "3.13"
+      - name: Build the upstream slim wheel from both exact source trees
+        run: |
+          set -euo pipefail
+          python -m pip install build
+          python --version
+          for path in base candidate; do
+            stage="$RUNNER_TEMP/build-$path"
+            mkdir "$stage"
+            git -C "$path" archive --format=tar HEAD | tar -x -C "$stage"
+            (
+              cd "$stage"
+              cp pyproject_cli.toml pyproject.toml
+              SETUPTOOLS_SCM_PRETEND_VERSION_FOR_LMCACHE_CLI=0.0.0 NO_NATIVE_EXT=1 python -m build --wheel
+            )
+            sha256sum "$stage"/dist/lmcache_cli-*.whl
+            python - "$path" "$stage"/dist/lmcache_cli-*.whl > "$RUNNER_TEMP/$path-wheel-metadata.json" <<'PY'
+          from email import message_from_bytes
+          import json
+          from pathlib import Path
+          import sys
+          from zipfile import ZipFile
+
+          with ZipFile(sys.argv[2]) as wheel:
+              paths = wheel.namelist()
+              assert not any(path.endswith((".so", ".pyd")) for path in paths)
+              for command in ("get", "list"):
+                  name = f"lmcache/cli/commands/quota/{command}_command.py"
+                  assert wheel.read(name) == (Path(sys.argv[1]) / name).read_bytes()
+              metadata_path, = (name for name in paths if name.endswith(".dist-info/METADATA"))
+              meta = message_from_bytes(wheel.read(metadata_path))
+              print(json.dumps({key: sorted(meta.get_all(key, [])) for key in
+                                ("Name", "Version", "Requires-Python", "Requires-Dist")}))
+          PY
+          done
+          cmp "$RUNNER_TEMP/base-wheel-metadata.json" "$RUNNER_TEMP/candidate-wheel-metadata.json"
+          cat "$RUNNER_TEMP/base-wheel-metadata.json"
+      - name: Exercise the installed console entrypoint against both API response shapes
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/cli"
+          source "$RUNNER_TEMP/cli/bin/activate"
+          cd "$RUNNER_TEMP"
+          for path in base candidate; do
+            if [[ "$path" = base ]]; then
+              python -m pip install build-base/dist/lmcache_cli-*.whl
+              python -m pip list --format=json > base-deps.json
+            else
+              python -m pip install --force-reinstall --no-deps build-candidate/dist/lmcache_cli-*.whl
+              python -m pip list --format=json > candidate-deps.json
+              cmp base-deps.json candidate-deps.json
+            fi
+            python -m pip check
+            python - <<'PY'
+          import importlib.util
+          import lmcache
+          import sys
+          from pathlib import Path
+          assert Path(lmcache.__file__).is_relative_to(Path(sys.prefix))
+          assert importlib.util.find_spec("torch") is None
+          assert importlib.util.find_spec("lmcache.cuda_ops") is None
+          PY
+            lmcache --help
+            lmcache quota --help
+            python - "$path" <<'PY'
+          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+          import json
+          import shutil
+          import subprocess
+          import sys
+          import threading
+
+          role = sys.argv[1]
+          assert role in {"base", "candidate"}
+          assert shutil.which("lmcache").startswith(sys.prefix)
+
+          def mp_status(salt, limit, usage, exists=True):
+              return {"cache_salt": salt, "limit_gb": limit, "current_usage_gb": usage, "exists": exists}
+
+          def coordinator_status(salt, limit, usage, exists=True):
+              return {"cache_salt": salt, "quota_limit_gb": limit, "usage_gb": usage, "quota_exists": exists}
+
+          responses = {
+              "/mp/quota/active": mp_status("active", 2, 0.25),
+              "/mp/quota": {"users": {"active": {"limit_gb": 2, "current_usage_gb": 0.25}}},
+              "/coordinator/quota/active": coordinator_status("active", 2, 0.25),
+              "/coordinator/quota/zero": coordinator_status("zero", 0, 0.125),
+              "/coordinator/quota/usage": coordinator_status("usage", 0, 0.5, False),
+              "/coordinator/quota": {"by_cache_salt": [
+                  coordinator_status("active", 2, 0.25),
+                  coordinator_status("zero", 0, 0.125),
+                  coordinator_status("usage", 0, 0.5, False),
+              ]},
+              "/empty/quota": {"by_cache_salt": []},
+          }
+
+          class Handler(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  if self.path not in responses:
+                      self.send_error(404)
+                      return
+                  body = json.dumps(responses[self.path]).encode("utf-8")
+                  self.send_response(200)
+                  self.send_header("Content-Type", "application/json")
+                  self.send_header("Content-Length", str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+
+              def log_message(self, fmt, *args):
+                  pass
+
+          def entry(salt, limit, usage):
+              return {"cache_salt": salt, "limit_gb": limit, "current_usage_gb": usage}
+
+          cases = [
+              ("mp-get", "mp", ["get", "active"], mp_status("active", 2, 0.25), True),
+              ("mp-list", "mp", ["list"], {"quotas": [entry("active", 2, 0.25)]}, True),
+              ("coordinator-get", "coordinator", ["get", "active"], mp_status("active", 2, 0.25), False),
+              ("coordinator-zero", "coordinator", ["get", "zero"], mp_status("zero", 0, 0.125), False),
+              ("coordinator-usage", "coordinator", ["get", "usage"], mp_status("usage", 0, 0.5, False), False),
+              ("coordinator-list", "coordinator", ["list"], {"quotas": [entry("active", 2, 0.25), entry("zero", 0, 0.125)]}, False),
+              ("empty-list", "empty", ["list"], {"info": "No quotas configured"}, True),
+          ]
+          outcomes = []
+          with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+              worker = threading.Thread(target=server.serve_forever, daemon=True)
+              worker.start()
+              try:
+                  for name, route, command, expected, base_pass in cases:
+                      address = f"http://127.0.0.1:{server.server_port}/{route}"
+                      result = subprocess.run(
+                          ["lmcache", "quota", *command, "--format", "json", "--url", address],
+                          text=True, capture_output=True, timeout=20, check=True)
+                      observed = json.loads(result.stdout)["metrics"]
+                      if "quotas" in observed and "quotas" in expected:
+                          observed["quotas"].sort(key=lambda row: row["cache_salt"])
+                      passed = observed == expected
+                      print(json.dumps({"role": role, "case": name, "pass": passed, "observed": observed}), flush=True)
+                      outcomes.append((passed, role == "candidate" or base_pass))
+              finally:
+                  server.shutdown()
+                  worker.join()
+          assert all(actual == expected for actual, expected in outcomes), outcomes
+          print(f"{role} pass={sum(actual for actual, _ in outcomes)}/{len(outcomes)}", flush=True)
+          PY
+          done
+      - name: Verify tracked sources stayed clean
+        if: ${{ always() && steps.source.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          for path in base candidate event; do
+            git -C "$path" diff HEAD --exit-code
+            test -z "$(git -C "$path" status --porcelain --untracked-files=all)"
+          done

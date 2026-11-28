@@ -330,6 +330,28 @@ in `lmcache/cli/corpora/`.
   `add_*_args()` helpers.
 - **`--url` flag:** Configured per-subcommand (ZMQ vs HTTP semantics vary).
 
+### Quota read responses
+
+`lmcache quota get` and `lmcache quota list` send HTTP GET requests to the MP
+server or coordinator selected by `--url`. The coordinator's reads default to
+L2. Both endpoints use the same CLI JSON schema.
+
+- `get` emits `cache_salt`, `limit_gb`, `current_usage_gb`, and `exists`.
+  MP server replies already use those fields. Coordinator replies map
+  `quota_limit_gb`, `usage_gb`, and `quota_exists` onto the same metrics.
+  On the coordinator, `exists=false` and `limit_gb=0.0` indicate that no explicit
+  quota is registered. The coordinator's effective default is configured separately.
+- `list` emits a `quotas` list with `cache_salt`, `limit_gb`, and
+  `current_usage_gb` in each row. The MP server supplies those rows in `users`.
+  The coordinator's `by_cache_salt` also contains
+  usage-only salts, so the CLI takes only rows with `quota_exists=true`, including
+  explicitly registered zero limits. With no quota rows, the CLI emits
+  `info="No quotas configured"`.
+
+`_default` is the path sentinel for the anonymous salt. Output retains the
+endpoint's salt value, which is `_default` on the MP server and the empty string
+on the coordinator.
+
 ### File layout
 
 ```

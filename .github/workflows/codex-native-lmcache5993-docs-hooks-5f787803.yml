@@ -1,0 +1,202 @@
+name: LMCache 5993 strict docs and author hooks 5f787803
+
+on:
+  push:
+    branches: [codex-ci/lmcache5993-native5f787803-docs-hooks]
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      BASE_COMMIT: "ffbcce35f2c647aa8d2197deb2d67385d5315ff5"
+      BASE_TREE: "bfef1659cb42c224a1be902ef0c8dfd43cc02fe6"
+      SOURCE_COMMIT: "9c8f8e506c8114912ab38d54c5256e4762233db1"
+      SOURCE_TREE: "edb04561e002640f191ac801b174b391711ff331"
+      VALIDATION_WORKFLOW: ".github/workflows/codex-native-lmcache5993-docs-hooks-5f787803.yml"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_NO_CACHE_DIR: "1"
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76
+        with:
+          egress-policy: audit
+      - name: Checkout exact workflow event
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          repository: GoldArowana/LMCache
+          ref: ${{ github.sha }}
+          path: event
+          fetch-depth: 3
+          persist-credentials: false
+      - name: Checkout exact upstream base
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          repository: LMCache/LMCache
+          ref: ${{ env.BASE_COMMIT }}
+          path: base
+          persist-credentials: false
+      - name: Checkout exact validation-only source
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          repository: GoldArowana/LMCache
+          ref: ${{ env.SOURCE_COMMIT }}
+          path: candidate
+          persist-credentials: false
+      - name: Verify event, source trees, and change scope
+        id: source
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/docs-evidence"
+          test "$GITHUB_REPOSITORY" = "GoldArowana/LMCache"
+          test "$GITHUB_REF" = "refs/heads/codex-ci/lmcache5993-native5f787803-docs-hooks"
+          test "$GITHUB_EVENT_NAME" = "push"
+          test "$GITHUB_SHA" != "$SOURCE_COMMIT"
+          test "$SOURCE_COMMIT" != "$BASE_COMMIT"
+          test "$(git -C event rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C event show -s --format=%P "$GITHUB_SHA")" = "$SOURCE_COMMIT"
+          test "$(git -C event show -s --format=%P "$SOURCE_COMMIT")" = "$BASE_COMMIT"
+          test "$(git -C event diff --name-status "$SOURCE_COMMIT" "$GITHUB_SHA")" = "$(printf 'A\t%s' "$VALIDATION_WORKFLOW")"
+          git -C event diff --name-status "$BASE_COMMIT" "$SOURCE_COMMIT" > "$RUNNER_TEMP/docs-evidence/source-diff.txt"
+          diff -u "$RUNNER_TEMP/docs-evidence/source-diff.txt" <(printf 'M\t%s\n' docs/design/cli/commands.md docs/source/cli/quota.rst lmcache/cli/commands/quota/get_command.py lmcache/cli/commands/quota/list_command.py tests/cli/commands/test_quota.py)
+          test "$(git -C base remote get-url origin)" = "https://github.com/LMCache/LMCache"
+          test "$(git -C candidate remote get-url origin)" = "https://github.com/GoldArowana/LMCache"
+          test "$(git -C base rev-parse HEAD)" = "$BASE_COMMIT"
+          test "$(git -C base rev-parse 'HEAD^{tree}')" = "$BASE_TREE"
+          test "$(git -C candidate rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test "$(git -C candidate rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
+          for source in base candidate; do
+            git -C "$source" diff HEAD --exit-code
+            test -z "$(git -C "$source" status --porcelain=v1 --untracked-files=all)"
+          done
+          printf 'BASE_COMMIT=%s\nBASE_TREE=%s\nSOURCE_COMMIT=%s\nSOURCE_TREE=%s\nEVENT_COMMIT=%s\nEVENT_TREE=%s\n' "$BASE_COMMIT" "$BASE_TREE" "$SOURCE_COMMIT" "$SOURCE_TREE" "$GITHUB_SHA" "$(git -C event rev-parse 'HEAD^{tree}')" > "$RUNNER_TEMP/docs-evidence/identity.txt"
+      - name: Set up the upstream documentation Python version
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548
+        with:
+          python-version: |
+            3.12
+            3.13
+      - name: Install the same documentation dependencies for both trees
+        run: |
+          set -euo pipefail
+          cmp base/requirements/docs.txt candidate/requirements/docs.txt
+          cmp base/.pre-commit-config.yaml candidate/.pre-commit-config.yaml
+          cat > "$RUNNER_TEMP/docs-evidence/known-good-constraints.txt" <<'CONSTRAINTS'
+          alabaster==1.0.0
+          babel==2.18.0
+          beautifulsoup4==4.15.0
+          certifi==2026.10.23
+          charset-normalizer==3.5.2
+          click==8.5.1
+          codespell==2.4.1
+          docutils==0.21.2
+          idna==3.20
+          imagesize==2.0.1
+          Jinja2==3.1.6
+          MarkupSafe==3.0.4
+          msgspec==0.22.0
+          packaging==26.3
+          Pygments==2.21.0
+          PyYAML==6.0.3
+          requests==2.34.2
+          roman-numerals==4.1.0
+          roman-numerals-py==4.1.0
+          setuptools==84.2.1
+          snowballstemmer==3.1.1
+          soupsieve==4.1
+          Sphinx==8.2.3
+          sphinx-copybutton==0.5.2
+          sphinx-intl==2.3.1
+          sphinx-multiversion==0.2.4
+          sphinx_design==0.8.0
+          sphinx_rtd_theme==3.1.0
+          sphinxawesome-theme==5.3.2
+          sphinxcontrib-applehelp==2.0.0
+          sphinxcontrib-devhelp==2.0.0
+          sphinxcontrib-htmlhelp==2.1.0
+          sphinxcontrib-images==1.0.1
+          sphinxcontrib-jquery==4.1
+          sphinxcontrib-jsmath==1.0.1
+          sphinxcontrib-mermaid==2.0.2
+          sphinxcontrib-qthelp==2.0.0
+          sphinxcontrib-serializinghtml==2.0.0
+          tomli==2.5.0
+          typing_extensions==4.16.0
+          urllib3==2.8.0
+          CONSTRAINTS
+          python -m pip --version > "$RUNNER_TEMP/docs-evidence/pip.txt"
+          python -m pip install --constraint "$RUNNER_TEMP/docs-evidence/known-good-constraints.txt" -r base/requirements/docs.txt
+          python -m pip check
+          python --version > "$RUNNER_TEMP/docs-evidence/python.txt"
+          python3.12 --version > "$RUNNER_TEMP/docs-evidence/python-3.12.txt"
+          sphinx-build --version > "$RUNNER_TEMP/docs-evidence/sphinx.txt"
+          python -m pip list --format=json > "$RUNNER_TEMP/docs-evidence/packages.json"
+      - name: Measure strict builds and preserve all four real exit statuses
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/docs-evidence"
+          complete=0
+          for language in en zh_CN; do
+            for source in base candidate; do
+              label="$source-$language"
+              build="$RUNNER_TEMP/lmcache-docs-$label"
+              export SPHINX_LANGUAGE="$language"
+              make -C "$source/docs" clean BUILDDIR="$build" > "$evidence/$label-clean.log" 2>&1
+              code=0
+              timeout 180s make -C "$source/docs" html BUILDDIR="$build" SPHINXOPTS='-W --keep-going -N' > "$evidence/$label-build.log" 2>&1 || code=$?
+              printf '%s\n' "$code" > "$evidence/$label-build.exit"
+              printf 'STRICT_SPHINX %s %s\n' "$label" "$code"
+              grep -E 'WARNING:|ERROR:' "$evidence/$label-build.log" > "$evidence/$label-diagnostics.txt" || [[ "$?" = 1 ]]
+              if [[ ! -s "$build/html/index.html" || ( "$code" != 0 && "$code" != 2 ) ]]; then
+                complete=1
+                continue
+              fi
+              sample="$evidence/rendered/$label"
+              for page in cli/quota.html objects.inv; do
+                install -D "$build/html/$page" "$sample/$page"
+              done
+            done
+          done
+          exit "$complete"
+      - name: Run all non-Rust pre-commit hooks and preserve their real result
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/docs-evidence"
+          export PRE_COMMIT_HOME="$RUNNER_TEMP/lmcache-pre-commit"
+          python -m pip install pre-commit > "$evidence/pre-commit-install.log" 2>&1
+          python -m pre_commit --version > "$evidence/pre-commit-version.txt"
+          code=0
+          (
+            cd candidate
+            SKIP=rust-fmt,rust-clippy python -m pre_commit run --all-files --color=never
+          ) > "$evidence/pre-commit.log" 2>&1 || code=$?
+          printf '%s\n' "$code" > "$evidence/pre-commit.exit"
+          printf 'NON_RUST_PRE_COMMIT %s\n' "$code"
+          git -C candidate diff HEAD -- > "$evidence/pre-commit-tracked-diff.patch"
+          exit "$code"
+      - name: Always verify source and event checkouts stayed clean
+        if: ${{ always() && steps.source.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          test "$(git -C base rev-parse HEAD)" = "$BASE_COMMIT"
+          test "$(git -C base rev-parse 'HEAD^{tree}')" = "$BASE_TREE"
+          test "$(git -C candidate rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test "$(git -C candidate rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
+          test "$(git -C event rev-parse HEAD)" = "$GITHUB_SHA"
+          for source in base candidate event; do
+            git -C "$source" diff HEAD --exit-code
+            git -C "$source" status --porcelain=v1 --untracked-files=all > "$RUNNER_TEMP/docs-evidence/$source-final-status.txt"
+            test ! -s "$RUNNER_TEMP/docs-evidence/$source-final-status.txt"
+          done
+      - name: Keep package versions, source identities, and raw build diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: lmcache-5993-docs-hooks-5f787803
+          retention-days: 7
+          if-no-files-found: error
+          path: ${{ runner.temp }}/docs-evidence/
